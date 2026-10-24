@@ -27,6 +27,19 @@ try:
             else:
                 print(f"Error while consuming message: {msg.error()}")
                 break
+        # --- INSPECT THE MESSAGE OBJECT AS IT IS ---
+        # print('===================================')
+        # print(f"Object Type:   {type(msg)}")
+        # print(f"Topic:         {msg.topic()}")
+        # print(f"Partition:     {msg.partition()}")
+        # print(f"Offset:        {msg.offset()}")
+        # print(f"Raw Key:       {msg.key()}")
+        # print(f"Raw Value:     {msg.value()}")
+        # print(f"Timestamp:     {msg.timestamp()}")  # Returns tuple: (Type, Epoch Milliseconds)
+        # print(f"Headers:       {msg.headers()}")    # Returns list of tuples or None
+        # print(f"Latency:       {msg.latency()}")    # In-queue time in seconds (if available)
+        # print('===================================')
+
 
         print(
             f"Received message: {msg.value().decode('utf-8')} from topic: {msg.topic()} at offset: {msg.offset()}"
