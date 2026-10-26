@@ -78,21 +78,49 @@ docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server loc
 Stop all consumers. Run the producer once. Then run the `--describe --group` command above.
 Look at the `LAG` column. Now start one consumer and run `--describe` again.
 
-## Questions (answer these and send them to me)
+## Questions & Answers (for revision)
 
-1. In Experiment 2, one partition probably got **zero** messages. Why? What problem does this cause in a
-   real system, and what could you do about it? 
-   ans = yes alice goes to the same partition again, it makes same goes to the same but one consumer is sitting there ideal not doing anything, right now idk what to do about this
-2. Why can't 4 consumers in one group read from a 3-partition topic faster than 3 consumers?
-   ans = because one goes unassigned and it only 3 are effectively working at the same time 
-3. You run `consumer.py A` with group `orders-group`, and `consumer1.py` from Lesson 01 is also running.
-   If you changed `consumer1.py` to subscribe to `orders` with `group.id = "some-other-group"`, how many
-   times would each order be processed in total?
-   ans = i dont have done that, but i think it will get duplicated and processed twice if i do that 
-4. An e-commerce app must process "order created", "order paid" and "order shipped" in order for each order.
-   What would you use as the message key?
-   ans = i think user_id will be a good choice, like a primary key from db for users,because it will fall in the same order and under same partition so tracking will be easy
-5. What does `LAG` mean, and why would you put an alert on it in production?
-   ans = i think lag is situation where one consumer is slower then others and if it happens in prod it can slow down the whole app, becuase there are the chances of apps being slow because of interdependent services 
-6. (Bonus) Why did Ctrl+C rebalance quickly while `kill -9` took about 45 seconds?
-   ans = i dont have done that. but i assumme because in code we have used finally and in ctrl c is does not execute it automatically and slowly will die so...
+**1. In Experiment 2, one partition got zero messages. Why? What problem does it cause, and what can you do?**
+
+`partition = hash(key) % 3`. With only 5 keys, it was just bad luck that none of the 5 hashes landed on
+partition 1. Nothing is wrong with Kafka; there were too few distinct keys.
+- **Problem:** *partition skew* (a "hot partition"). One consumer sits idle while another does all the work,
+  so adding consumers doesn't help.
+- **Fixes:** use a key with **many distinct values** (high cardinality: order_id, device_id …).
+  If you don't need ordering, send **no key** and Kafka spreads messages evenly.
+  Watch out for one "giant" key (a huge customer): it always lands on a single partition.
+
+**2. Why can't 4 consumers read a 3-partition topic faster than 3?**
+
+In a group, one partition is read by exactly ONE consumer. With 3 partitions, at most 3 consumers get work.
+The 4th is assigned nothing and sits idle. It's still useful as a **hot standby**: if a working consumer dies,
+the standby takes over its partition right away. **Partitions = the maximum parallelism of a group.**
+
+**3. `consumer.py A` (group `orders-group`) + `consumer1.py` (group `some-other-group`), both on `orders`. How many times is each order processed?**
+
+**Twice**, once per group. Every group gets its own full copy of the topic and its own offsets.
+This is **fan-out**, and it's a feature, not duplication: e.g. an email service and an analytics service each
+see every order. Duplication *within one group* is the real problem (Lesson 03).
+
+**4. "order created / paid / shipped" must be processed in order for each order. What key?**
+
+**`order_id`.** All events of one order land on the same partition, so they stay in order.
+`user_id` also works (it orders *all* of a user's events), but it's coarser than needed, and one big customer
+makes one partition hot. **Rule: pick the smallest key that still gives you the ordering you need.**
+
+**5. What is LAG, and why alert on it?**
+
+Per partition: `LAG = latest offset in the partition − offset the group has committed`
+= **how many messages are waiting, not yet processed**.
+Lag that keeps growing means the consumers can't keep up, are stuck, or have crashed. Orders pile up unprocessed
+while the service still looks "up", so lag is often the only signal something is wrong.
+⚠️ Not "one consumer is slower than the others". Lag is about the group vs. the end of the log.
+
+**6. Why did Ctrl+C rebalance quickly while `kill -9` took ~45 s?**
+
+- **Ctrl+C** raises `KeyboardInterrupt`, so `finally` runs `consumer.close()`. That sends **LeaveGroup** to the broker,
+  which rebalances immediately.
+- **`kill -9`** ends the process instantly: no `finally`, no `close()`. The broker only notices when
+  heartbeats stop for **`session.timeout.ms`** (default 45 s). Until then the dead consumer's partitions are stuck.
+
+Lesson: **always close consumers**, and handle SIGTERM in real services (Docker/Kubernetes stop containers with SIGTERM).

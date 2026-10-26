@@ -6,8 +6,8 @@ Do one lesson at a time: read the LESSON.md, run the experiments, answer the que
 |---|--------|--------|
 | 01 | Basic producer + consumer, consumer groups, `auto.offset.reset` (your `producer.py`, `consumer1.py`, `consumer2.py`) | Done |
 | 02 | Partitions, keys, and how a consumer group splits work | Done |
-| 03 | Offsets and commits: auto vs manual, at-least-once, replaying messages | **Current** |
-| 04 | Serialization: sending JSON / structured data | |
+| 03 | Offsets and commits: auto vs manual, at-least-once, replaying messages | Done |
+| 04 | Serialization: JSON + pydantic, headers, schema evolution, poison pills | **Current** |
 | 05 | Producer reliability: `acks`, retries, idempotence, batching, compression | |
 | 06 | Error handling: poison messages, retries, dead-letter topic | |
 | 07 | Exactly-once with transactions (consume → process → produce) | |
