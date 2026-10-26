@@ -104,18 +104,95 @@ uv run python producer.py
 uv run python consumer.py
 ```
 
-## Questions (answer these and send them to me, along with your Experiment 5 code)
+## Experiment 5: review of your solution
 
-1. Kafka doesn't care whether you send JSON, plain text or images. So where does the "format" actually live,
-   and who has to agree on it?
-2. In Experiment 3, why did the old consumer survive the new `currency` field? Name a setting in pydantic
-   that would have made it **crash** instead.
-3. In Experiment 4, explain step by step (using what you learned about commits in Lesson 03) why the consumer
-   crashes on every restart, and why the good orders sent after it never get processed.
-4. What's the difference between putting `event_type` in a **header** vs. only inside the JSON **value**?
-   Give one situation where the header is more useful.
-5. Your teammate wants to rename `user_id` to `customer_id`. Other teams' consumers read this topic.
-   How would you roll it out **without breaking anyone**?
-6. In Experiment 5 you **skip** the bad message. What's lost by skipping? What would be better in production?
-   (This is the topic of Lesson 06.)
-7. (Bonus) Why `amount_cents: int` instead of `amount: float`? Try `0.1 + 0.2` in Python.
+Your `consumer.py` catches `ValidationError`, logs partition / offset / raw value / error, and keeps going. 👍
+pydantic also raises `ValidationError` for **invalid JSON**, so one `except` covers both the breaking v2 event
+and `bad_producer.py`.
+
+**One bug: not calling `store_offsets` for the bad message.**
+A committed offset is a **position** ("next message to read"), not a per-message "ack". So:
+- If a good message comes after the bad one in the same partition, its `store_offsets` moves the position
+  past the bad one anyway, and skipping `store_offsets` changed nothing.
+- If the bad message is the **last one** in its partition, the position stays on it. **Every restart reads it
+  and logs the poison pill again.** (Tested: bad message alone in the topic, two runs, logged twice.)
+
+Fix: you *handled* it (logged and decided to skip it), so mark it as done:
+
+```python
+        except ValidationError as e:
+            print(f"[POISON PILL] partition={msg.partition()} offset={msg.offset()} raw={msg.value()!r} error={e}")
+            consumer.store_offsets(message=msg)  # handled = skipped on purpose; move past it
+```
+
+Two smaller robustness notes for real systems:
+- `msg.value()` can be `None` (a "tombstone" message). Decide what that means for you.
+- Header decoding is outside the `try`. A header with a `None` value or non-UTF-8 bytes would still crash
+  the consumer. Real code parses *everything* from the message inside the protected block.
+
+## Questions & Answers (for revision)
+
+**1. Kafka doesn't care about the format. So where does it live, and who must agree on it?**
+
+The format lives **in the producer's and consumer's code**: the serializer and deserializer (here: `models.py`).
+**The broker never looks inside your bytes.** It doesn't validate, parse or reject anything.
+The producer and *every* consumer must agree on it. In bigger companies the contract is stored centrally in a
+**Schema Registry** (Avro / Protobuf / JSON Schema), which checks compatibility before a producer can use a new
+version. Even then it's the *clients* that use it, never the broker.
+⚠️ Not "the format lives on Kafka": Kafka only stores bytes.
+
+**2. Why did the old consumer survive the new `currency` field? Which pydantic setting would make it crash?**
+
+pydantic's default is `extra="ignore"`: unknown fields are silently dropped. With
+`model_config = ConfigDict(extra="forbid")` it raises a `ValidationError` instead.
+Ignoring unknown fields is called being a **tolerant reader**, and it's what makes "adding a field" a compatible change.
+
+**3. Why does the consumer crash on every restart, and why are good orders behind it never processed?**
+
+1. `poll()` returns the bad message, and `model_validate_json` raises.
+2. The exception escapes the loop, so `store_offsets` is never called for it. `close()` commits only the offsets
+   stored *before* it, so the committed position = the bad message's offset.
+3. Restart: resume from the committed position, the same bad message, crash again. Forever: a **poison pill**.
+4. Messages behind it in the same partition are never reached, and since the whole process dies, the
+   consumer's *other* partitions stop too. Lag grows, and nothing gets processed.
+
+**4. `event_type` in a header vs only inside the JSON value?**
+
+Headers can be read **without deserializing the value**. Good uses:
+- **Filtering / routing**: a consumer that only cares about `order_shipped` can skip others cheaply.
+- Telling *how* to parse the value: `content_type`, `schema_version` pick the right deserializer *before* parsing.
+- Cross-cutting metadata: trace / correlation ids, source service, retry count, error info (Lesson 06's DLQ uses this).
+
+⚠️ Even when you skip a message based on its header, you still **store its offset**. Skipped means handled,
+so the position must move past it.
+
+**5. Rename `user_id` → `customer_id` without breaking other teams?**
+
+Your answer is the right pattern: **expand → migrate → contract** (also called "parallel change"):
+1. **Expand:** send **both** `user_id` and `customer_id` (same value). Bump `schema_version`.
+2. **Migrate:** consumers switch to `customer_id`, falling back to `user_id` if it's missing.
+3. **Contract:** only after *all* consumers have moved, stop sending `user_id`.
+
+Two extra traps:
+- **Old messages stay in the topic** until retention deletes them. A consumer that replays history still sees
+  messages with only `user_id`, so keep the fallback while those exist.
+- You often **don't know every consumer**. That's why companies use a Schema Registry with compatibility rules,
+  or publish breaking changes to a **new topic** (`order-events-v2`).
+
+**6. What's lost by skipping a bad message? What's better?**
+
+You lose the **data**: an order is never processed, and nobody notices except a log line.
+⚠️ **Re-sending it to the same topic doesn't help.** It fails again, forever, and wastes the consumer's time.
+Better: separate the two kinds of failure:
+- **Permanent errors** (bad format, missing field): send the original bytes plus error details (in headers) to a
+  **Dead Letter Topic** (DLQ), alert, fix the bug, and replay from the DLQ.
+- **Transient errors** (DB down, API timeout): retry with backoff, possibly via a separate retry topic.
+
+That's Lesson 06.
+
+**7. (Bonus) Why `amount_cents: int` instead of `amount: float`?**
+
+Floats are binary fractions and can't represent most decimals exactly: `0.1 + 0.2 == 0.30000000000000004`.
+Errors pile up in sums, `==` comparisons fail, and rounding differs between languages, which is a problem when
+invoices must match to the paisa. Use **integer minor units** (cents / paise), or `Decimal` sent as a **string**.
+Also send the **currency**: not every currency has 2 decimals (JPY has 0, KWD has 3).

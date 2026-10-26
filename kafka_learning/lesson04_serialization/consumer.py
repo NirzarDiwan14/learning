@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from confluent_kafka import Consumer
+from pydantic import ValidationError
 from models import OrderEvent
 
 config = {
@@ -31,20 +32,30 @@ try:
         # headers() is a list of (str, bytes) tuples, or None
         headers = {k: v.decode() for k, v in (msg.headers() or [])}
 
-        # DESERIALIZE: bytes -> JSON -> validated Python object
-        event = OrderEvent.model_validate_json(msg.value())
+        try:
+            # DESERIALIZE: bytes -> JSON -> validated Python object
+            event = OrderEvent.model_validate_json(msg.value())
 
-        # Every message also has a timestamp (ms since epoch) set by the producer
-        _, ts_ms = msg.timestamp()
-        sent_at = datetime.fromtimestamp(ts_ms / 1000, UTC).strftime("%H:%M:%S")
+            # Every message also has a timestamp (ms since epoch) set by the producer
+            _, ts_ms = msg.timestamp()
+            sent_at = datetime.fromtimestamp(ts_ms / 1000, UTC).strftime("%H:%M:%S")
 
-        print(
-            f"p{msg.partition()} off{msg.offset():<3} {sent_at} "
-            f"v{headers.get('schema_version')} {event.event_type:<14} "
-            f"{event.order_id} user={event.user_id:<6} amount={event.amount_cents / 100:.2f}"
-        )
+            print(
+                f"p{msg.partition()} off{msg.offset():<3} {sent_at} "
+                f"v{headers.get('schema_version')} {event.event_type:<14} "
+                f"{event.order_id} user={event.user_id:<6} amount={event.amount_cents / 100:.2f}"
+            )
 
-        consumer.store_offsets(message=msg)
+            consumer.store_offsets(message=msg)
+
+        except ValidationError as e:
+            print(
+                f"[POISON PILL] Failed to parse message | "
+                f"partition: {msg.partition()} | offset: {msg.offset()} | "
+                f"raw_value: {msg.value()!r} | error: {e}"
+            )
+            # We skip calling store_offsets(message=msg) for the invalid message. 
+            # The consumer loop continues to poll and process good messages behind it.
 
 except KeyboardInterrupt:
     pass
