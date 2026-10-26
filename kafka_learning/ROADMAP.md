@@ -10,8 +10,8 @@ Do one lesson at a time: read the LESSON.md, run the experiments, answer the que
 | 04 | Serialization: JSON + pydantic, headers, schema evolution, poison pills | Done |
 | 05 | Producer reliability: `acks`, retries, idempotence, batching, compression | Done |
 | 06 | Error handling: transient vs permanent errors, backoff, dead-letter topic, replay | Done |
-| 07 | Exactly-once with transactions (consume → process → produce) | **Current** |
-| 08 | Mini project: order pipeline with FastAPI + Kafka | |
+| 07 | Exactly-once with transactions (consume → process → produce) | Done |
+| 08 | Final project: event-driven order system (FastAPI + payment service + projector) | **Current** |
 
 ## Recap of Lesson 01 (what you already learned)
 
