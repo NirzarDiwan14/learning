@@ -9,8 +9,8 @@ Do one lesson at a time: read the LESSON.md, run the experiments, answer the que
 | 03 | Offsets and commits: auto vs manual, at-least-once, replaying messages | Done |
 | 04 | Serialization: JSON + pydantic, headers, schema evolution, poison pills | Done |
 | 05 | Producer reliability: `acks`, retries, idempotence, batching, compression | Done |
-| 06 | Error handling: transient vs permanent errors, backoff, dead-letter topic, replay | **Current** |
-| 07 | Exactly-once with transactions (consume → process → produce) | |
+| 06 | Error handling: transient vs permanent errors, backoff, dead-letter topic, replay | Done |
+| 07 | Exactly-once with transactions (consume → process → produce) | **Current** |
 | 08 | Mini project: order pipeline with FastAPI + Kafka | |
 
 ## Recap of Lesson 01 (what you already learned)
