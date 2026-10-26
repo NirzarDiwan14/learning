@@ -8,8 +8,8 @@ Do one lesson at a time: read the LESSON.md, run the experiments, answer the que
 | 02 | Partitions, keys, and how a consumer group splits work | Done |
 | 03 | Offsets and commits: auto vs manual, at-least-once, replaying messages | Done |
 | 04 | Serialization: JSON + pydantic, headers, schema evolution, poison pills | Done |
-| 05 | Producer reliability: `acks`, retries, idempotence, batching, compression | **Current** |
-| 06 | Error handling: poison messages, retries, dead-letter topic | |
+| 05 | Producer reliability: `acks`, retries, idempotence, batching, compression | Done |
+| 06 | Error handling: transient vs permanent errors, backoff, dead-letter topic, replay | **Current** |
 | 07 | Exactly-once with transactions (consume → process → produce) | |
 | 08 | Mini project: order pipeline with FastAPI + Kafka | |
 
