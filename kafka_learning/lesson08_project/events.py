@@ -28,6 +28,12 @@ class OrderPlaced(BaseModel):
     total_cents: int = Field(gt=0)
     card_last4: str = Field(pattern=r"^\d{4}$")
     created_at: datetime = Field(default_factory=_now)
+    # v2 (Exercise B): NEW field WITH a default -> compatible both ways:
+    #  - old consumers ignore it (pydantic extra="ignore")
+    #  - new consumers reading old v1 events get "INR"
+    # Plain str, not Literal: if a future producer adds "GBP", consumers must not crash on it.
+    # The API validates the allowed values at the edge instead.
+    currency: str = "INR"
 
 
 class PaymentResult(BaseModel):
@@ -36,4 +42,13 @@ class PaymentResult(BaseModel):
     order_id: str
     amount_cents: int
     reason: str | None = None  # e.g. "card_declined"
+    created_at: datetime = Field(default_factory=_now)
+    currency: str = "INR"  # v2
+
+
+# Exercise A: produced by shipping_service.py for every successful payment
+class ShipmentRequested(BaseModel):
+    event_id: str = Field(default_factory=_new_id)
+    event_type: Literal["shipment_requested"] = "shipment_requested"
+    order_id: str
     created_at: datetime = Field(default_factory=_now)

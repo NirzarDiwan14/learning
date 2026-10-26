@@ -6,9 +6,13 @@ from confluent_kafka import Consumer, TopicPartition
 
 # Usage: python lag.py           -> print once
 #        python lag.py --watch   -> refresh every 2 s
+#
+# Note: on topics written with TRANSACTIONS (shop-shipments) a fully caught-up consumer shows LAG 1 per
+# partition. The last offset is the transaction's commit MARKER, which is never delivered as a message.
 GROUPS = {
     "payment-service": [config.ORDERS_TOPIC],
-    "order-status-projector": [config.ORDERS_TOPIC, config.PAYMENTS_TOPIC],
+    "order-status-projector": [config.ORDERS_TOPIC, config.PAYMENTS_TOPIC, config.SHIPMENTS_TOPIC],
+    "shipping-service": [config.PAYMENTS_TOPIC],
 }
 
 # One consumer per group, used only to ask questions (never subscribes)

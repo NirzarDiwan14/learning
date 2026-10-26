@@ -8,7 +8,7 @@ import sqlite3
 from datetime import UTC, datetime
 
 import config
-from events import OrderPlaced, PaymentResult
+from events import OrderPlaced, PaymentResult, ShipmentRequested
 from kafka_utils import make_consumer, stop_on_sigterm
 from pydantic import ValidationError
 
@@ -26,6 +26,9 @@ def connect():
         " order_id TEXT PRIMARY KEY, customer_id TEXT, total_cents INTEGER,"
         " status TEXT NOT NULL, reason TEXT, created_at TEXT, updated_at TEXT)"
     )
+    # Exercise B: a read model migrates its own schema. Old rows get NULL (= "INR", the v1 default)
+    if "currency" not in {row[1] for row in db.execute("PRAGMA table_info(orders)")}:
+        db.execute("ALTER TABLE orders ADD COLUMN currency TEXT")
     return db
 
 
@@ -33,21 +36,33 @@ def apply_order_placed(db, event: OrderPlaced):
     # The payment result may have been projected FIRST (different topic = no ordering guarantee),
     # so on conflict only fill in the details and never touch the status.
     db.execute(
-        "INSERT INTO orders (order_id, customer_id, total_cents, status, created_at, updated_at)"
-        " VALUES (?, ?, ?, 'pending', ?, ?)"
+        "INSERT INTO orders (order_id, customer_id, total_cents, currency, status, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, 'pending', ?, ?)"
         " ON CONFLICT(order_id) DO UPDATE SET"
-        "  customer_id = excluded.customer_id, total_cents = excluded.total_cents, created_at = excluded.created_at",
-        (event.order_id, event.customer_id, event.total_cents, event.created_at.isoformat(), _now()),
+        "  customer_id = excluded.customer_id, total_cents = excluded.total_cents,"
+        "  currency = excluded.currency, created_at = excluded.created_at",
+        (event.order_id, event.customer_id, event.total_cents, event.currency, event.created_at.isoformat(), _now()),
     )
 
 
 def apply_payment_result(db, event: PaymentResult):
     status = "paid" if event.event_type == "payment_succeeded" else "payment_failed"
+    # 'shipping' comes from another topic and can be projected BEFORE the payment result
+    # (or the payment result can be redelivered later): never move a status backwards.
     db.execute(
         "INSERT INTO orders (order_id, status, reason, updated_at) VALUES (?, ?, ?, ?)"
-        " ON CONFLICT(order_id) DO UPDATE SET status = excluded.status, reason = excluded.reason,"
-        "  updated_at = excluded.updated_at",
+        " ON CONFLICT(order_id) DO UPDATE SET"
+        "  status = CASE WHEN orders.status = 'shipping' THEN orders.status ELSE excluded.status END,"
+        "  reason = excluded.reason, updated_at = excluded.updated_at",
         (event.order_id, status, event.reason, _now()),
+    )
+
+
+def apply_shipment_requested(db, event: ShipmentRequested):
+    db.execute(
+        "INSERT INTO orders (order_id, status, updated_at) VALUES (?, 'shipping', ?)"
+        " ON CONFLICT(order_id) DO UPDATE SET status = 'shipping', updated_at = excluded.updated_at",
+        (event.order_id, _now()),
     )
 
 
@@ -59,13 +74,14 @@ HANDLERS = {
     "order_placed": (OrderPlaced, apply_order_placed),
     "payment_succeeded": (PaymentResult, apply_payment_result),
     "payment_failed": (PaymentResult, apply_payment_result),
+    "shipment_requested": (ShipmentRequested, apply_shipment_requested),
 }
 
 
 def main():
     stop_on_sigterm()
     db = connect()
-    consumer = make_consumer(GROUP, [config.ORDERS_TOPIC, config.PAYMENTS_TOPIC])
+    consumer = make_consumer(GROUP, [config.ORDERS_TOPIC, config.PAYMENTS_TOPIC, config.SHIPMENTS_TOPIC])
     log.info("projector running")
 
     try:

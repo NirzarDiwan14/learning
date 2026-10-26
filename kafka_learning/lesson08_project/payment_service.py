@@ -38,6 +38,7 @@ def charge_with_retries(order: OrderPlaced) -> PaymentResult:
         order_id=order.order_id,
         amount_cents=order.total_cents,
         reason=None if outcome == "approved" else "card_declined",
+        currency=order.currency,  # v2: "INR" for old v1 events (model default)
     )
 
 
@@ -79,10 +80,14 @@ def main():
                 config.PAYMENTS_TOPIC,
                 order.order_id,
                 result,
-                headers={"event_type": result.event_type, "schema_version": "1"},
+                headers={"event_type": result.event_type, "schema_version": "2"},
             )
             consumer.store_offsets(message=msg)
-            log.info("p%d off%d: %s -> %s", msg.partition(), msg.offset(), order.order_id[:8], result.event_type)
+            log.info(
+                "p%d off%d: %s %.2f %s -> %s",
+                msg.partition(), msg.offset(), order.order_id[:8], order.total_cents / 100, order.currency,
+                result.event_type,
+            )
     except KeyboardInterrupt:
         pass
     finally:

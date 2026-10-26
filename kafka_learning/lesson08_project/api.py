@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 from contextlib import asynccontextmanager, closing
+from typing import Literal
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import config
@@ -19,6 +20,8 @@ class CreateOrderRequest(BaseModel):
     customer_id: str
     items: list[OrderItem] = Field(min_length=1)
     card_last4: str = Field(pattern=r"^\d{4}$")
+    # v2: validated strictly HERE, at the edge. Events carry it as a plain str.
+    currency: Literal["INR", "USD", "EUR"] = "INR"
 
 
 @asynccontextmanager
@@ -46,6 +49,7 @@ async def create_order(body: CreateOrderRequest, idempotency_key: str | None = H
         items=body.items,
         total_cents=sum(i.qty * i.unit_price_cents for i in body.items),
         card_last4=body.card_last4,
+        currency=body.currency,
     )
 
     try:
@@ -54,7 +58,7 @@ async def create_order(body: CreateOrderRequest, idempotency_key: str | None = H
             config.ORDERS_TOPIC,
             order_id,
             event,
-            headers={"event_type": event.event_type, "schema_version": "1"},
+            headers={"event_type": event.event_type, "schema_version": "2"},
             timeout=10,
         )
     except (BufferError, KafkaException, TimeoutError) as e:

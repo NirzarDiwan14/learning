@@ -1,19 +1,23 @@
 # Kafka Learning Roadmap
 
-Do one lesson at a time: read the LESSON.md, run the experiments, answer the questions.
+A hands-on Kafka course in Python (`confluent-kafka`). **Start with Lesson 01**: it covers the setup.
+Do one lesson at a time: read its `LESSON.md`, run the experiments, answer the questions yourself, and only then
+read the "Questions & Answers" section at the end of the lesson.
+
+Requirements: Docker, [uv](https://docs.astral.sh/uv/), Python 3.14 (see `pyproject.toml`). Run each lesson from its own folder.
 
 | # | Lesson | Status |
 |---|--------|--------|
-| 01 | Basic producer + consumer, consumer groups, `auto.offset.reset` (your `producer.py`, `consumer1.py`, `consumer2.py`) | Done |
-| 02 | Partitions, keys, and how a consumer group splits work | Done |
-| 03 | Offsets and commits: auto vs manual, at-least-once, replaying messages | Done |
-| 04 | Serialization: JSON + pydantic, headers, schema evolution, poison pills | Done |
-| 05 | Producer reliability: `acks`, retries, idempotence, batching, compression | Done |
-| 06 | Error handling: transient vs permanent errors, backoff, dead-letter topic, replay | Done |
-| 07 | Exactly-once with transactions (consume → process → produce) | Done |
-| 08 | Final project: event-driven order system (FastAPI + payment service + projector) | **Current** |
+| [01](lesson01_basics/LESSON.md) | Basic producer + consumer, consumer groups, `auto.offset.reset` + setup | Done |
+| [02](lesson02_partitions/LESSON.md) | Partitions, keys, and how a consumer group splits work | Done |
+| [03](lesson03_offsets/LESSON.md) | Offsets and commits: auto vs manual, at-least-once, replaying messages | Done |
+| [04](lesson04_serialization/LESSON.md) | Serialization: JSON + pydantic, headers, schema evolution, poison pills | Done |
+| [05](lesson05_producer_reliability/LESSON.md) | Producer reliability: `acks`, retries, idempotence, batching, compression | Done |
+| [06](lesson06_error_handling/LESSON.md) | Error handling: transient vs permanent errors, backoff, dead-letter topic, replay | Done |
+| [07](lesson07_transactions/LESSON.md) | Exactly-once with transactions (consume → process → produce) | Done |
+| [08](lesson08_project/LESSON.md) | Final project: event-driven order system (FastAPI + payment service + projector) | Done |
 
-## Recap of Lesson 01 (what you already learned)
+## Quick recap of Lesson 01 (details in lesson01_basics/LESSON.md)
 
 - A **producer** sends messages to a **topic**. `produce()` is async: it only queues the message.
   `flush()` waits until everything is actually sent, and the delivery callback tells you the result.
@@ -37,3 +41,6 @@ docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server loc
 ```
 
 Kafka UI is also running at http://localhost:8080.
+
+## What next?
+All 8 lessons are done. See [NEXT_STEPS.md](NEXT_STEPS.md) for what to learn after this and how.

@@ -25,7 +25,12 @@ def check(ok: bool, text: str):
 
 check(charged_keys == total_charges, "no order was charged twice")
 check(status.get("pending", 0) == 0, f"no order stuck in 'pending' (pending={status.get('pending', 0)})")
-check(status.get("paid", 0) == charges.get("approved", 0), "every approved charge shows as 'paid', and vice versa")
+paid_or_shipping = status.get("paid", 0) + status.get("shipping", 0)
+check(paid_or_shipping == charges.get("approved", 0), "every approved charge shows as 'paid'/'shipping', and vice versa")
+check(
+    status.get("paid", 0) == 0,
+    f"every paid order is shipping (paid={status.get('paid', 0)}; > 0 is fine if shipping_service isn't running)",
+)
 check(
     status.get("payment_failed", 0) == charges.get("declined", 0),
     "every declined charge shows as 'payment_failed', and vice versa",
