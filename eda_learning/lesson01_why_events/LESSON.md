@@ -97,16 +97,27 @@ Three orders came in and two were "confirmed". How many confirmation emails went
 
 1. In Experiment 2, v1 failed **all** orders, but the stock still went down. Explain exactly what happened, and why
    this is worse than "the email didn't get sent".
+   ans = becuase of the functions ordering in place order, crash happend after reserving the stock
 2. For each of the three couplings (knowledge, temporal, failure), say whether it is **removed** in
    (a) v2 with `SyncEventBus` and (b) v2 with `AsyncEventBus`. One line of reasoning each.
+   ans = it has remove in all 3 in b 
 3. `reserve_stock` is still a direct call in v2, not an event handler. Why? What would go wrong if inventory just
    *listened* for `OrderPlaced`?
+   ans = its the task of inventory, its the one who can actually tell the order is placed or not in our system, its like a source of truth, and becaues it is doing it, it should publish that msg not any other system
 4. Classify each as **command**, **event** or **query**, and fix the name if it's badly named for its kind:
    `ReserveStock`, `OrderPlaced`, `GetOrderStatus`, `SendEmail`, `PaymentFailed`, `CancelOrder`, `OrderShip`, `UserUpdate`.
+   command - reservestock, sendemail, cancelorder, 
+   event - orderplaced , paymentfailed,ordership, userupdate
+   query - getorderstatus
+   ans = i think names are fine , userUpdate can be userUpdated, same goes for orderShipped 
 5. The customer-registration service publishes `SendWelcomeEmail`. A teammate suggests renaming it to
    `CustomerRegistered`. Who is right, and why does it matter (think about Experiment 5)?
+   ans = CustomerRegistered is the right in my opionin because its a customer registration service, so it should not name things like send welcome email, it should be a action of another service who subsribed customer registered event 
 6. Experiment 6: what was lost, and why? List what Kafka would give you that `AsyncEventBus` doesn't. (Use what
    you learned in the Kafka course.)
+   ans = all the things which should happen have lost and persistence is not there, kafka gives us persistence
 7. With `AsyncEventBus` the customer sees "confirmed" before the email is sent, and if the email fails, nobody
    is told. What **new problems** did EDA just create that v1 didn't have? Name at least two.
+   ans =handling failures and duplications, it can be solved by DLQ and retries
 8. Give one example where you would **not** use events and would keep a direct call. Why?
+   ans = in small systems where not much microserives are there

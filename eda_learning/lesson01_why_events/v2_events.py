@@ -63,10 +63,15 @@ def record_analytics(event: OrderPlaced):
     time.sleep(2 if SLOW_ANALYTICS else 0.1)
     print(f"    [analytics] recorded {event.order_id}: {event.qty} x {event.item}")
 
+def award_reward_points(event: OrderPlaced):
+    time.sleep(0.5)
+    print(f"    [LOYALTY] [rewards] awarded {event.qty} points to {event.customer}")
+
 
 bus.subscribe(OrderPlaced, send_confirmation_email)
 bus.subscribe(OrderPlaced, record_analytics)
-
+bus.subscribe(OrderPlaced, award_reward_points)
+    
 
 if __name__ == "__main__":
     print(f"using {type(bus).__name__}")

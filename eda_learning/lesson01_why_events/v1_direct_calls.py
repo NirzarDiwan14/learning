@@ -33,6 +33,9 @@ def record_analytics(order_id, item, qty):
     time.sleep(2 if SLOW_ANALYTICS else 0.1)
     print(f"    [analytics] recorded {order_id}: {qty} x {item}")
 
+def award_reward_points(customer,qty):
+    print(f"    [LOYALTY] [rewards] awarded {qty} points to {customer}")
+
 
 # ---- the order service ----
 
@@ -40,6 +43,7 @@ def place_order(order_id, customer, item, qty):
     reserve_stock(item, qty)
     send_confirmation_email(customer, order_id)
     record_analytics(order_id, item, qty)
+    award_reward_points(customer, qty)
     return "confirmed"
 
 
