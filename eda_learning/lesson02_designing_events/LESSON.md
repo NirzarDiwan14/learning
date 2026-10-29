@@ -94,38 +94,72 @@ Tip: Python 3.14 has `uuid.uuid7()`. Its ids are time-ordered, which makes them 
 In Kafka you can put the envelope in the message value (structured mode) or the metadata in **headers** and the data
 in the value (binary mode). You did the second in Kafka Lesson 04 with the `event_type` header.
 
-## Practical
+## Files
 
-> **Note:** the spec below is the plan. When you start this lesson, Claude writes and tests the code and replaces
-> this section with **Files** + **Experiments** for you to run (like Lesson 01).
+- `envelope.py`: builds CloudEvents-style events (`make_event`), serializes them (`to_json` / `from_json`), **validates**
+  them, and maps them to Kafka messages in structured and binary mode. Run it directly for a demo.
+- `event_bus.py`: an in-memory pub/sub bus that carries **JSON text**. Each subscriber has its own queue and thread
+  (like a separate consumer group), and every event is appended to `event_log_<mode>.jsonl` (like a topic with retention).
+- `thin_vs_fat.py`: a food-delivery flow published with **thin** events and then **fat** events, to two consumers:
+  - `courier-app` prints a **delivery label** (needs the address), on `order.placed` and `order.address_changed`
+  - `restaurant-tablet` shows **what to cook** (needs the items), on `order.placed`
+  - the customer changes the address of `o-2` **0.1 s after** placing it
+- `food_delivery_events.md`: a worked example of an integration-event catalog, with thin/fat reasoning for each event.
 
-Work in this folder. Standard library only (you may use `pydantic`, which comes with FastAPI).
+Run from this folder with `uv run python <file> [flags]`. No Kafka needed.
 
-**Domain:** a food-delivery app with restaurants, customers and couriers.
+## Experiments (do them in order, keep notes on what you see)
 
-1. **Design on paper first.** In `DESIGN.md`, list 8–10 **integration events** for the flow from "customer places an
-   order" to "food delivered", including at least two failure paths (restaurant rejects, no courier available).
-   For each event: name, producer, likely consumers, and the fields in `data`. Mark each event **thin** or **fat**
-   and give a one-line reason.
-2. **`envelope.py`:** a function `make_event(type_, source, subject, data, correlation_id=None, causation_id=None)`
-   that returns a CloudEvents-style dict (ids from `uuid.uuid7()`, time in UTC ISO 8601), plus `to_json` / `from_json`.
-   `from_json` must reject an event that is missing a required attribute.
-3. **`thin_vs_fat.py`:** simulate the race.
-   - A fake `OrderService` holds orders in a dict and has `get_order(id)` that sleeps 0.3 s (a network call).
-   - Publish `OrderPlaced` thin and fat versions to two consumers through Lesson 01's `AsyncEventBus`.
-   - **Right after** publishing, change the order's delivery address (`ShippingAddressChanged`).
-   - Each consumer prints the address it will use for the delivery label.
-4. Make `get_order` raise (service down) and run again.
+### Experiment 1: the envelope
+```bash
+uv run python envelope.py
+```
+- Look at the `id`s of two runs. They start with the same characters. Why? (Hint: `uuid7`.)
+- Why is `correlation_id` rejected but `correlationid` accepted?
+- Compare the two Kafka modes. In binary mode, what can a consumer do **without parsing the value**?
 
-**Done when:**
-- [ ] `DESIGN.md` has the event list with at least one event you *deliberately* kept thin, with the reason
-- [ ] `from_json` rejects a broken event with a clear error
-- [ ] `thin_vs_fat.py` shows the thin consumer printing the *new* address and the fat consumer the *old* one, and you can explain which is "correct" for a delivery label (it depends!)
-- [ ] with `get_order` down, you can say which consumer still works
+### Experiment 2: thin vs fat, the race
+```bash
+uv run python thin_vs_fat.py
+```
+Find the line `LABEL o-2 (new order)` in both runs.
+- Which address did each version print for it? The address change happened **after** the order was placed. Why did the
+  thin consumer already "know" about it while handling `order.placed`?
+- How many label lines does `o-2` get in each version?
+- Look at the timestamps: when did the last label print in each version?
+
+### Experiment 3: the orders service is down
+```bash
+uv run python thin_vs_fat.py --service-down
+```
+Which consumers still work in each version? Is it a problem that the thin events are still safely in the log?
+
+### Experiment 4: load on the source
+```bash
+uv run python thin_vs_fat.py --orders 20
+```
+Compare `GET /orders calls` and `avg event size`. Now imagine 10 consumers and 500 orders per second.
+Also notice: a thin event is still ~260 bytes. What makes up most of it?
+
+### Experiment 5: what stays in the logs
+After running both modes:
+```bash
+grep -c "+49" event_log_thin.jsonl event_log_fat.jsonl
+head -1 event_log_fat.jsonl
+```
+These files stand in for a Kafka topic with 7 days (or forever) of retention, replicated to 3 brokers, and copied
+into every consumer that stores what it received. A customer asks you to delete their phone number. Where is it now?
+
+### Experiment 6: read the event catalog
+Read `food_delivery_events.md`. Then, on paper:
+- Add an event for "the customer tipped the courier after delivery". Name it, pick the producer and consumers,
+  decide thin or fat, and list the fields.
+- Find the event that the catalog deliberately avoids publishing with customer details, and explain how
+  `notifications` still gets the email address.
 
 ## Questions (answer them in your own words, then send them to me)
 
-1. In step 3, the two consumers printed different addresses. Which one is right? Give one business case where the
+1. In Experiment 2, the two versions printed different addresses for `LABEL o-2 (new order)`. Which one is right? Give one business case where the
    thin consumer's behavior is what you want and one where the fat consumer's is.
 2. A teammate proposes one event `OrderUpdated` with the full order every time anything changes. Give two concrete
    problems for consumers, and what you'd publish instead.

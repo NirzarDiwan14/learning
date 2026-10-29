@@ -21,8 +21,8 @@ Run each lesson from its own folder with `uv run python <file>`.
 
 | # | Lesson | Needs | Status |
 |---|--------|-------|--------|
-| [01](lesson01_why_events/LESSON.md) | Why events? Direct calls vs events, kinds of coupling, commands vs events vs queries | stdlib | In progress |
-| [02](lesson02_designing_events/LESSON.md) | Designing events: notification vs event-carried state transfer, thin vs fat, naming, the CloudEvents envelope | stdlib | |
+| [01](lesson01_why_events/LESSON.md) | Why events? Direct calls vs events, kinds of coupling, commands vs events vs queries | stdlib | Done |
+| [02](lesson02_designing_events/LESSON.md) | Designing events: notification vs event-carried state transfer, thin vs fat, naming, the CloudEvents envelope | stdlib | In progress |
 | [03](lesson03_delivery_and_idempotency/LESSON.md) | Delivery in the real world: queues vs pub/sub, duplicates, out-of-order events, idempotent consumers | stdlib + SQLite | |
 | [04](lesson04_outbox_inbox/LESSON.md) | The dual-write problem: transactional outbox and inbox | Kafka + SQLite | |
 | [05](lesson05_choreography_vs_orchestration/LESSON.md) | Choreography vs orchestration: who decides what happens next? | stdlib or Kafka | |

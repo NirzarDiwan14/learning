@@ -93,31 +93,129 @@ uv run python v2_events.py --async --slow-analytics --crash
 ```
 Three orders came in and two were "confirmed". How many confirmation emails went out? How many analytics records?
 
-## Questions (answer them in your own words, then send them to me)
+## Questions & Answers (for revision)
 
-1. In Experiment 2, v1 failed **all** orders, but the stock still went down. Explain exactly what happened, and why
-   this is worse than "the email didn't get sent".
-   ans = becuase of the functions ordering in place order, crash happend after reserving the stock
-2. For each of the three couplings (knowledge, temporal, failure), say whether it is **removed** in
-   (a) v2 with `SyncEventBus` and (b) v2 with `AsyncEventBus`. One line of reasoning each.
-   ans = it has remove in all 3 in b 
-3. `reserve_stock` is still a direct call in v2, not an event handler. Why? What would go wrong if inventory just
-   *listened* for `OrderPlaced`?
-   ans = its the task of inventory, its the one who can actually tell the order is placed or not in our system, its like a source of truth, and becaues it is doing it, it should publish that msg not any other system
-4. Classify each as **command**, **event** or **query**, and fix the name if it's badly named for its kind:
-   `ReserveStock`, `OrderPlaced`, `GetOrderStatus`, `SendEmail`, `PaymentFailed`, `CancelOrder`, `OrderShip`, `UserUpdate`.
-   command - reservestock, sendemail, cancelorder, 
-   event - orderplaced , paymentfailed,ordership, userupdate
-   query - getorderstatus
-   ans = i think names are fine , userUpdate can be userUpdated, same goes for orderShipped 
-5. The customer-registration service publishes `SendWelcomeEmail`. A teammate suggests renaming it to
-   `CustomerRegistered`. Who is right, and why does it matter (think about Experiment 5)?
-   ans = CustomerRegistered is the right in my opionin because its a customer registration service, so it should not name things like send welcome email, it should be a action of another service who subsribed customer registered event 
-6. Experiment 6: what was lost, and why? List what Kafka would give you that `AsyncEventBus` doesn't. (Use what
-   you learned in the Kafka course.)
-   ans = all the things which should happen have lost and persistence is not there, kafka gives us persistence
-7. With `AsyncEventBus` the customer sees "confirmed" before the email is sent, and if the email fails, nobody
-   is told. What **new problems** did EDA just create that v1 didn't have? Name at least two.
-   ans =handling failures and duplications, it can be solved by DLQ and retries
-8. Give one example where you would **not** use events and would keep a direct call. Why?
-   ans = in small systems where not much microserives are there
+**1. In Experiment 2, v1 failed all orders, but the stock still went down. What happened, and why is it worse than "the email didn't get sent"?**
+
+`place_order` runs three steps in a row: `reserve_stock` succeeded and changed the stock, then `send_confirmation_email`
+raised, so the exception jumped out of `place_order` and the order was reported as failed. **Nothing undid step 1.**
+End result: `keyboard: 5 → 2`. **3 keyboards are locked for orders that don't exist.**
+
+Why it's worse:
+- It's a **partial failure that leaves the system inconsistent**, not just a missing side effect. The stock is now lying.
+- It's **silent and permanent**: nobody gets an error about the stock. Real customers later see "out of stock" for
+  keyboards sitting on the shelf, so you lose sales.
+- The customer was told "failed", so they **retry**, and each retry locks *more* stock.
+- The email wasn't even important for the order's correctness. A **non-essential step** broke an essential one.
+
+⚠️ Your answer found the cause (the ordering of the calls), but not the consequence: inconsistent state with no undo.
+That consequence is the core of Lessons 04 and 06 (outbox, sagas, compensation).
+
+**2. Which couplings are removed with (a) SyncEventBus and (b) AsyncEventBus?**
+
+| Coupling | (a) `SyncEventBus` | (b) `AsyncEventBus` |
+|---|---|---|
+| **Knowledge** | ✅ removed: `place_order` only knows `OrderPlaced`, not email or analytics | ✅ removed |
+| **Failure** | ✅ removed: the bus catches handler exceptions, so the email failing doesn't fail the order | ✅ removed |
+| **Temporal** | ❌ **NOT removed**: handlers still run inside `publish()`, so slow analytics still made `place_order` take 2 s (Experiment 3) | ✅ removed *within the process*: `publish()` only queues |
+
+⚠️ You said "all 3 in (b)", but you skipped (a), which is the interesting case. **Events alone don't make things
+asynchronous.** The *bus* decides that. And even (b) only removes temporal coupling while the process is alive: the
+handlers live in the same process, so if it dies, they die too (Experiment 6). Real temporal decoupling ("email
+service is down for an hour, orders keep working") needs a **durable broker** between separate processes.
+One coupling always remains: everyone depends on the **shape of the event** (Lessons 02 and 09).
+
+**3. Why is `reserve_stock` still a direct call? What goes wrong if inventory just listens for `OrderPlaced`?**
+
+Because **the order service needs the answer before it can continue.** Whether stock exists decides
+"confirmed" or "rejected". That's a **command with a reply that can be refused**, not a fact.
+
+If inventory only listened to `OrderPlaced`:
+- the order service would publish `OrderPlaced` and say "confirmed" for order-2 **even though there are no mice**
+- inventory **can't refuse an event**. It's already a fact. It could only react afterwards (`StockReservationFailed`),
+  and then someone has to cancel the order and apologize to the customer (a compensation)
+- the meaning of `OrderPlaced` becomes a lie: "placed" but maybe not really
+
+⚠️ Your answer has a good instinct: inventory **owns** the stock, so it's the source of truth about it and should
+publish facts about stock (`StockReserved`, `OutOfStock`). That's a real alternative design, where the order starts
+as `PENDING` and becomes confirmed when `StockReserved` arrives. But then `OrderPlaced` means "requested, not
+confirmed yet" and the customer gets the answer later. You'll build exactly that in Lessons 05 and 06. The key idea for
+this question: **use a direct call (or a command with a reply) when you need the answer now**.
+
+**4. Classify and fix the names.**
+
+| Message | Kind | Name OK? |
+|---|---|---|
+| `ReserveStock` | command | ✅ |
+| `OrderPlaced` | event | ✅ |
+| `GetOrderStatus` | query | ✅ |
+| `SendEmail` | command | too generic: *which* email, and why? `SendOrderConfirmation` |
+| `PaymentFailed` | event | ✅ (or more precise: `PaymentDeclined`) |
+| `CancelOrder` | command | ✅ (the event that follows is `OrderCancelled`) |
+| `OrderShip` | **ambiguous** | ❌ not past tense, so it could be the command `ShipOrder` or the event `OrderShipped` |
+| `UserUpdate` | **ambiguous** | ❌ not past tense, *and* a CRUD event: better a specific event like `EmailAddressChanged` |
+
+⚠️ You wrote "names are fine" and then fixed two of them, which is a contradiction. Listen to that instinct: **a name that
+isn't past tense is not an event**, and if you can't tell whether a message is a command or an event, the name is wrong.
+`UserUpdated` is better than `UserUpdate` but still weak: it doesn't say *what* changed or *why* (Lesson 02).
+
+**5. `SendWelcomeEmail` vs `CustomerRegistered`?**
+
+✅ The teammate is right, and your reasoning is right too: the registration service should announce **what happened in
+its domain**, and reacting to it (sending the email) is the email service's job.
+
+Why it matters (Experiment 5): tomorrow marketing wants a CRM entry, loyalty wants a sign-up bonus, and analytics wants
+a counter. With `CustomerRegistered` they all just subscribe, with no change to the registration service. With
+`SendWelcomeEmail`, a CRM listening to an "email" message is absurd, so someone would add `CreateCrmEntry`,
+`GiveSignupBonus`… to the registration service, and you're back to v1's knowledge coupling.
+`SendWelcomeEmail` is a **command disguised as an event**. It names the *reaction* instead of the *fact*.
+
+**6. Experiment 6: what was lost, and what does Kafka give you that `AsyncEventBus` doesn't?**
+
+Lost: orders 1 and 3 were **confirmed to the customer**, but their 2 confirmation emails and 2 analytics records
+(and your loyalty points) were never processed. The events existed **only in RAM** (the `queue.Queue`), and
+`os._exit` threw RAM away.
+
+What Kafka adds (✅ you got the main one: persistence):
+- **Durability:** the event is written to disk (and replicated to other brokers in a real cluster) *before* the producer gets its ack
+- **Consumers in separate processes:** the email service can crash, be redeployed or scaled without touching the order service
+- **Committed offsets:** a restarted consumer continues where it stopped (at-least-once)
+- **Replay:** rewind offsets to reprocess history, or start a brand-new consumer from the beginning
+- **Retention:** events stay even when nobody is consuming right now
+- **Partitions:** parallelism with ordering per key
+
+⚠️ The producer must still **wait for the ack** before saying "confirmed" (Kafka Lesson 08, promise 1), and even then
+the DB-write vs publish gap remains. That's Lesson 04.
+
+**7. What new problems did EDA create that v1 didn't have?**
+
+- **Silent failures:** the email failed and *nobody was told*. v1 at least returned an error. Now you need
+  monitoring, retries and a DLQ to even notice.
+- **Eventual consistency:** "confirmed" is said **before** the side effects happen. For a moment (or forever, if
+  something fails) the system's parts disagree.
+- **Lost events:** in-memory async = at-most-once (Experiment 6).
+- **Harder debugging:** there's no single call stack. "What happened to order 1?" spans several handlers (Lesson 10).
+- **Ordering:** with parallel consumers, events can be processed in a different order than they happened (Lesson 03).
+
+⚠️ "Duplicates" isn't actually a problem of *this* bus: an in-memory queue delivers at most once. Duplicates arrive
+when you switch to a **durable** broker with at-least-once delivery (Lesson 03). DLQ + retries are good fixes for
+silent failures, but name the problem first: **nobody notices**, and **the customer was told "confirmed" too early**.
+
+**8. One example where you'd keep a direct call.**
+
+The question asks about a specific **interaction**, not about the size of the whole system. Keep a direct call when
+**the caller needs the answer right now to continue**, or needs **strong consistency**:
+- **Payment authorization at checkout:** you can't show "order complete" without knowing whether the card worked
+- **Stock / seat availability** before confirming (Q3)
+- **Login / permission checks:** "is this token valid?"
+- **Price or shipping-cost calculation** shown on the page
+- **Any query:** "get customer details" as an event + reply event is a slow, fragile HTTP call (an anti-pattern, Lesson 11)
+
+⚠️ "Small systems with few microservices" is a fair point about whether to adopt EDA **at all** (Lesson 11), but even a
+huge event-driven system still uses direct calls for the cases above.
+
+### Your Experiment 5 code (loyalty points)
+✅ Done right: in v2 you added `award_reward_points` and subscribed it **without touching `place_order`**, while in v1
+you had to edit `place_order` itself. That's knowledge coupling, shown in code.
+Also notice what v1's edit brought along: one more call that adds latency and one more way for an order to fail.
+Small detail: the spec said 10 points per item (`event.qty * 10`); yours gives 1 per item.
