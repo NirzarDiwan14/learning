@@ -1,0 +1,53 @@
+name: health-chatbot-poc
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: health_poc_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-health_poc}
+      POSTGRES_USER: ${POSTGRES_USER:-health}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-health}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5434}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ..                     # repo root: uses the root pyproject.toml + uv.lock
+      dockerfile: health_chatbot_poc/backend/Dockerfile
+    container_name: health_poc_backend
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    ports:
+      - "${BACKEND_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - mem0data:/app/health_chatbot_poc/.mem0
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: health_chatbot_poc/frontend/Dockerfile
+    container_name: health_poc_frontend
+    env_file: .env
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "${FRONTEND_HOST_PORT:-8501}:8501"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  mem0data:

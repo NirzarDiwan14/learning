@@ -1,0 +1,9 @@
+# Allowlist: the build context is the whole repo, so send only what the image needs.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!health_chatbot_poc/backend
+!health_chatbot_poc/frontend
+**/__pycache__
+**/.env
